@@ -1620,6 +1620,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "graph-chain-starknet"
+version = "0.28.0"
+dependencies = [
+ "graph",
+ "prost",
+ "prost-types",
+ "serde",
+ "tonic-build",
+]
+
+[[package]]
 name = "graph-chain-substreams"
 version = "0.28.0"
 dependencies = [
