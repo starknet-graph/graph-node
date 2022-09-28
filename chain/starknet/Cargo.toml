@@ -1,0 +1,13 @@
+[package]
+name = "graph-chain-starknet"
+version = "0.28.0"
+edition = "2021"
+
+[build-dependencies]
+tonic-build = { workspace = true }
+
+[dependencies]
+graph = { path = "../../graph" }
+prost = { workspace = true }
+prost-types = { workspace = true }
+serde = "1.0"
