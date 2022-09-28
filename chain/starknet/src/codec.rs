@@ -1,7 +1,11 @@
+#[allow(clippy::all)]
+#[rustfmt::skip]
+#[path = "protobuf/zklend.starknet.r#type.v1.rs"]
+pub mod pbcodec;
+
 use graph::blockchain::{Block as BlockchainBlock, BlockPtr};
 
-#[derive(Debug, Clone, Default)]
-pub struct Block;
+pub use pbcodec::*;
 
 impl BlockchainBlock for Block {
     fn number(&self) -> i32 {
