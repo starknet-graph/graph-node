@@ -1,20 +1,57 @@
 use graph::{
     anyhow::Error,
-    blockchain::{self, Blockchain, TriggerWithHandler},
+    blockchain::{self, Block as BlockchainBlock, TriggerWithHandler},
     components::{link_resolver::LinkResolver, store::StoredDynamicDataSource},
     data::subgraph::DataSourceContext,
-    prelude::{async_trait, BlockNumber, DataSourceTemplateInfo, Deserialize, Logger},
+    prelude::{async_trait, BlockNumber, DataSourceTemplateInfo, Deserialize, Link, Logger},
     semver,
 };
 use std::sync::Arc;
 
-use crate::chain::Chain;
+use crate::{chain::Chain, codec, trigger::StarknetTrigger};
 
 #[derive(Clone)]
-pub struct DataSource;
+pub struct DataSource {
+    pub kind: String,
+    pub network: String,
+    pub name: String,
+    pub source: Source,
+    pub mapping: Mapping,
+}
+
+#[derive(Clone)]
+pub struct Mapping {
+    pub block_handlers: Vec<MappingBlockHandler>,
+    pub runtime: Arc<Vec<u8>>,
+}
 
 #[derive(Deserialize)]
-pub struct UnresolvedDataSource;
+pub struct UnresolvedDataSource {
+    pub kind: String,
+    pub network: String,
+    pub name: String,
+    pub source: Source,
+    pub mapping: UnresolvedMapping,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Source {
+    pub start_block: BlockNumber,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnresolvedMapping {
+    #[serde(default)]
+    pub block_handlers: Vec<MappingBlockHandler>,
+    pub file: Link,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct MappingBlockHandler {
+    pub handler: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct DataSourceTemplate;
@@ -24,37 +61,49 @@ pub struct UnresolvedDataSourceTemplate;
 
 impl blockchain::DataSource<Chain> for DataSource {
     fn address(&self) -> Option<&[u8]> {
-        todo!()
+        None
     }
 
     fn start_block(&self) -> BlockNumber {
-        todo!()
+        self.source.start_block
     }
 
     #[allow(unused)]
     fn match_and_decode(
         &self,
-        trigger: &<Chain as Blockchain>::TriggerData,
-        block: &Arc<<Chain as Blockchain>::Block>,
+        trigger: &StarknetTrigger,
+        block: &Arc<codec::Block>,
         logger: &Logger,
     ) -> Result<Option<TriggerWithHandler<Chain>>, Error> {
-        todo!()
+        if self.mapping.block_handlers.is_empty() {
+            Ok(None)
+        } else {
+            let handler = &self.mapping.block_handlers[0];
+
+            println!("Handler found: {}", handler.handler);
+
+            Ok(Some(TriggerWithHandler::<Chain>::new(
+                trigger.clone(),
+                handler.handler.clone(),
+                block.ptr(),
+            )))
+        }
     }
 
     fn name(&self) -> &str {
-        todo!()
+        &self.name
     }
 
     fn kind(&self) -> &str {
-        todo!()
+        &self.kind
     }
 
     fn network(&self) -> Option<&str> {
-        todo!()
+        Some(&self.network)
     }
 
     fn context(&self) -> Arc<Option<DataSourceContext>> {
-        todo!()
+        Arc::new(None)
     }
 
     fn creation_block(&self) -> Option<BlockNumber> {
@@ -79,15 +128,15 @@ impl blockchain::DataSource<Chain> for DataSource {
     }
 
     fn validate(&self) -> Vec<Error> {
-        todo!()
+        Default::default()
     }
 
     fn api_version(&self) -> semver::Version {
-        todo!()
+        semver::Version::new(0, 0, 5)
     }
 
     fn runtime(&self) -> Option<Arc<Vec<u8>>> {
-        todo!()
+        Some(self.mapping.runtime.clone())
     }
 }
 
@@ -109,7 +158,18 @@ impl blockchain::UnresolvedDataSource<Chain> for UnresolvedDataSource {
         logger: &Logger,
         manifest_idx: u32,
     ) -> Result<DataSource, Error> {
-        todo!()
+        let module_bytes = resolver.cat(logger, &self.mapping.file).await?;
+
+        Ok(DataSource {
+            kind: self.kind,
+            network: self.network,
+            name: self.name,
+            source: self.source,
+            mapping: Mapping {
+                block_handlers: self.mapping.block_handlers,
+                runtime: Arc::new(module_bytes),
+            },
+        })
     }
 }
 

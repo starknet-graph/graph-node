@@ -18,6 +18,7 @@ use graph_chain_arweave::{self as arweave, Block as ArweaveBlock};
 use graph_chain_cosmos::{self as cosmos, Block as CosmosFirehoseBlock};
 use graph_chain_ethereum as ethereum;
 use graph_chain_near::{self as near, HeaderOnlyBlock as NearFirehoseHeaderOnlyBlock};
+use graph_chain_starknet::{self as starknet, Block as StarknetBlock, StarknetStreamBuilder};
 use graph_chain_substreams as substreams;
 use graph_core::polling_monitor::ipfs_service::IpfsService;
 use graph_core::{
@@ -295,11 +296,20 @@ async fn main() {
         )
         .await;
 
+        let (starknet_networks, starknet_idents) = connect_firehose_networks::<StarknetBlock>(
+            &logger,
+            firehose_networks_by_kind
+                .remove(&BlockchainKind::Starknet)
+                .unwrap_or_else(|| FirehoseNetworks::new()),
+        )
+        .await;
+
         let network_identifiers = ethereum_idents
             .into_iter()
             .chain(arweave_idents)
             .chain(near_idents)
             .chain(cosmos_idents)
+            .chain(starknet_idents)
             .collect();
 
         let network_store = store_builder.network_store(network_identifiers);
@@ -340,6 +350,15 @@ async fn main() {
             &mut blockchain_map,
             &logger,
             &cosmos_networks,
+            network_store.as_ref(),
+            &logger_factory,
+            metrics_registry.clone(),
+        );
+
+        let starknet_chains = starknet_networks_as_chains(
+            &mut blockchain_map,
+            &logger,
+            &starknet_networks,
             network_store.as_ref(),
             &logger_factory,
             metrics_registry.clone(),
@@ -399,6 +418,12 @@ async fn main() {
                 &logger,
                 &network_store,
                 cosmos_chains,
+            );
+
+            start_firehose_block_ingestor::<_, StarknetBlock>(
+                &logger,
+                &network_store,
+                starknet_chains,
             );
 
             // Start a task runner
@@ -826,6 +851,55 @@ fn near_networks_as_chains(
     for (chain_id, firehose_chain) in chains.iter() {
         blockchain_map
             .insert::<graph_chain_near::Chain>(chain_id.clone(), firehose_chain.chain.clone())
+    }
+
+    HashMap::from_iter(chains)
+}
+
+fn starknet_networks_as_chains(
+    blockchain_map: &mut BlockchainMap,
+    logger: &Logger,
+    firehose_networks: &FirehoseNetworks,
+    store: &Store,
+    logger_factory: &LoggerFactory,
+    metrics_registry: Arc<MetricsRegistry>,
+) -> HashMap<String, FirehoseChain<starknet::Chain>> {
+    let chains: Vec<_> = firehose_networks
+        .networks
+        .iter()
+        .filter_map(|(chain_id, endpoints)| {
+            store
+                .block_store()
+                .chain_store(chain_id)
+                .map(|chain_store| (chain_id, chain_store, endpoints))
+                .or_else(|| {
+                    error!(
+                        logger,
+                        "No store configured for StarkNet chain {}; ignoring this chain", chain_id
+                    );
+                    None
+                })
+        })
+        .map(|(chain_id, chain_store, endpoints)| {
+            (
+                chain_id.clone(),
+                FirehoseChain {
+                    chain: Arc::new(starknet::Chain::new(
+                        logger_factory.clone(),
+                        chain_id.clone(),
+                        metrics_registry.clone(),
+                        endpoints.clone(),
+                        chain_store,
+                        Arc::new(StarknetStreamBuilder),
+                    )),
+                    firehose_endpoints: endpoints.clone(),
+                },
+            )
+        })
+        .collect();
+
+    for (chain_id, firehose_chain) in chains.iter() {
+        blockchain_map.insert::<starknet::Chain>(chain_id.clone(), firehose_chain.chain.clone())
     }
 
     HashMap::from_iter(chains)

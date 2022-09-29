@@ -8,7 +8,7 @@ pub struct NodeCapabilities;
 impl NodeCapabilitiesTrait<Chain> for NodeCapabilities {
     #[allow(unused)]
     fn from_data_sources(data_sources: &[DataSource]) -> Self {
-        todo!()
+        NodeCapabilities
     }
 }
 

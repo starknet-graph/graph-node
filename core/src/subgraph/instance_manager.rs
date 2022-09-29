@@ -99,6 +99,17 @@ impl<S: SubgraphStore> SubgraphInstanceManagerTrait for SubgraphInstanceManager<
                         )
                         .await
                 }
+                BlockchainKind::Starknet => {
+                    instance_manager
+                        .start_subgraph_inner::<graph_chain_starknet::Chain>(
+                            logger,
+                            loc,
+                            manifest,
+                            stop_block,
+                            Box::new(SubgraphTriggerProcessor {}),
+                        )
+                        .await
+                }
             }
         };
         // Perform the actual work of starting the subgraph in a separate
