@@ -354,7 +354,22 @@ pub enum IndexForAscTypeId {
     // ...
     // LastArweaveType = 3499,
 
-    // Reserved discriminant space for a future blockchain type IDs: [3,500, 4,499]
+    // StarkNet types
+    StarknetBlock = 3500,
+    StarknetTransaction = 3501,
+    StarknetTransactionTypeEnum = 3502,
+    StarknetEvent = 3503,
+    StarknetArrayTransaction = 3504,
+    StarknetArrayEvent = 3505,
+    StarknetArrayBytes = 3506,
+    // Continue to add more StarkNet type IDs here.
+    // e.g.:
+    // NextStarknetType = 3507,
+    // AnotherStarknetType = 3508,
+    // ...
+    // LastStarknetType = 4499,
+
+    // Reserved discriminant space for a future blockchain type IDs: [4,500, 5,499]
     //
     // Generated with the following shell script:
     //

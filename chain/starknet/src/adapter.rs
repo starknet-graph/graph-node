@@ -15,9 +15,7 @@ impl TriggerFilterTrait<Chain> for TriggerFilter {
     }
 
     #[allow(unused)]
-    fn extend<'a>(&mut self, data_sources: impl Iterator<Item = &'a DataSource> + Clone) {
-        todo!()
-    }
+    fn extend<'a>(&mut self, data_sources: impl Iterator<Item = &'a DataSource> + Clone) {}
 
     fn node_capabilities(&self) -> EmptyNodeCapabilities<Chain> {
         todo!()

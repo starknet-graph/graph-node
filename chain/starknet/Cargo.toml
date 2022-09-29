@@ -8,6 +8,8 @@ tonic-build = { workspace = true }
 
 [dependencies]
 graph = { path = "../../graph" }
+graph-runtime-wasm = { path = "../../runtime/wasm" }
+graph-runtime-derive = { path = "../../runtime/derive" }
 prost = { workspace = true }
 prost-types = { workspace = true }
 serde = "1.0"
