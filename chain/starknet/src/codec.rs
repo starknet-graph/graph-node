@@ -3,20 +3,30 @@
 #[path = "protobuf/zklend.starknet.r#type.v1.rs"]
 pub mod pbcodec;
 
-use graph::blockchain::{Block as BlockchainBlock, BlockPtr};
+use graph::blockchain::{Block as BlockchainBlock, BlockHash, BlockPtr};
 
 pub use pbcodec::*;
 
 impl BlockchainBlock for Block {
     fn number(&self) -> i32 {
-        todo!()
+        self.height as i32
     }
 
     fn ptr(&self) -> BlockPtr {
-        todo!()
+        BlockPtr {
+            hash: BlockHash(self.hash.clone().into_boxed_slice()),
+            number: self.height as i32,
+        }
     }
 
     fn parent_ptr(&self) -> Option<BlockPtr> {
-        todo!()
+        if self.height == 0 {
+            None
+        } else {
+            Some(BlockPtr {
+                hash: BlockHash(self.prev_hash.clone().into_boxed_slice()),
+                number: (self.height - 1) as i32,
+            })
+        }
     }
 }

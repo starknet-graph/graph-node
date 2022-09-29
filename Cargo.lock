@@ -1677,6 +1677,8 @@ name = "graph-chain-starknet"
 version = "0.28.0"
 dependencies = [
  "graph",
+ "graph-runtime-derive",
+ "graph-runtime-wasm",
  "prost",
  "prost-types",
  "serde",
@@ -1727,6 +1729,7 @@ dependencies = [
  "graph-chain-cosmos",
  "graph-chain-ethereum",
  "graph-chain-near",
+ "graph-chain-starknet",
  "graph-chain-substreams",
  "graph-mock",
  "graph-runtime-wasm",
@@ -1791,6 +1794,7 @@ dependencies = [
  "graph-chain-cosmos",
  "graph-chain-ethereum",
  "graph-chain-near",
+ "graph-chain-starknet",
  "graph-chain-substreams",
  "graph-core",
  "graph-graphql",
@@ -1892,6 +1896,7 @@ dependencies = [
  "graph-chain-cosmos",
  "graph-chain-ethereum",
  "graph-chain-near",
+ "graph-chain-starknet",
  "graph-graphql",
  "graphql-parser",
  "http",
