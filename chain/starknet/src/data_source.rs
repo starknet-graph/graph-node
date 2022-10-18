@@ -9,6 +9,9 @@ use graph::{
 use std::sync::Arc;
 
 use crate::{chain::Chain, codec, trigger::StarknetTrigger};
+use starknet::core::{utils::get_selector_from_name};
+use serde::de;
+
 
 #[derive(Clone)]
 pub struct DataSource {
@@ -22,6 +25,7 @@ pub struct DataSource {
 #[derive(Clone)]
 pub struct Mapping {
     pub block_handlers: Vec<MappingBlockHandler>,
+    pub event_handlers: Vec<MappingEventHandler>,
     pub runtime: Arc<Vec<u8>>,
 }
 
@@ -38,6 +42,8 @@ pub struct UnresolvedDataSource {
 #[serde(rename_all = "camelCase")]
 pub struct Source {
     pub start_block: BlockNumber,
+    #[serde(default, deserialize_with = "deserialize_address")]
+    pub address: Option<Vec<u8>>,
 }
 
 #[derive(Deserialize)]
@@ -45,12 +51,28 @@ pub struct Source {
 pub struct UnresolvedMapping {
     #[serde(default)]
     pub block_handlers: Vec<MappingBlockHandler>,
+    #[serde(default)]
+    pub event_handlers: Vec<MappingEventHandler>,
     pub file: Link,
 }
 
 #[derive(Clone, Deserialize)]
 pub struct MappingBlockHandler {
     pub handler: String,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct MappingEventHandler {
+    pub handler: String,
+    pub event: String,
+}
+
+impl MappingEventHandler   {
+    fn key(&self) -> Vec<u8> {
+        let key = get_selector_from_name(self.event.as_str())
+            .expect("MappingEventHandler.event is invalid");
+        return key.to_bytes_be().to_vec();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -75,19 +97,28 @@ impl blockchain::DataSource<Chain> for DataSource {
         block: &Arc<codec::Block>,
         logger: &Logger,
     ) -> Result<Option<TriggerWithHandler<Chain>>, Error> {
-        if self.mapping.block_handlers.is_empty() {
-            Ok(None)
-        } else {
-            let handler = &self.mapping.block_handlers[0];
-
-            println!("Handler found: {}", handler.handler);
-
-            Ok(Some(TriggerWithHandler::<Chain>::new(
-                trigger.clone(),
-                handler.handler.clone(),
-                block.ptr(),
-            )))
+        if self.start_block() > block.number() {
+            return Ok(None);
         }
+        
+        let handler = match trigger {
+            StarknetTrigger::Block(_) => match self.mapping.block_handlers.first() {
+                Some(handler) => handler.handler.clone(),
+                None => return Ok(None),
+            },
+            StarknetTrigger::Event(event) => match self.handler_for_event(event) {
+                Some(handler) => handler.handler,
+                None => return Ok(None),
+            }
+        };
+
+        println!("Handler found: {}", handler);
+
+        Ok(Some(TriggerWithHandler::<Chain>::new(
+            trigger.clone(),
+            handler.clone(),
+            block.ptr(),
+        )))
     }
 
     fn name(&self) -> &str {
@@ -140,6 +171,28 @@ impl blockchain::DataSource<Chain> for DataSource {
     }
 }
 
+impl DataSource {
+    /// Returns event trigger if an event.key matches the handler.key and optionally
+    /// if event.fromAddr matches the source address. Note this only supports the default 
+    /// starknet behavior of one key per event.
+    fn handler_for_event(
+        &self,
+        event: &codec::Event,
+    ) -> Option<MappingEventHandler> {
+        return self.mapping
+            .event_handlers
+            .iter()
+            .find(|handler| match event.keys.first() {
+                Some(key) => match &self.source.address {
+                    Some(address) => address == &event.from_addr && key == &handler.key(),
+                    None => key == &handler.key(),
+                }
+                None => false,
+            })
+            .cloned()
+    }
+}
+
 impl TryFrom<DataSourceTemplateInfo<Chain>> for DataSource {
     type Error = Error;
 
@@ -167,6 +220,7 @@ impl blockchain::UnresolvedDataSource<Chain> for UnresolvedDataSource {
             source: self.source,
             mapping: Mapping {
                 block_handlers: self.mapping.block_handlers,
+                event_handlers: self.mapping.event_handlers,
                 runtime: Arc::new(module_bytes),
             },
         })
@@ -202,4 +256,17 @@ impl blockchain::UnresolvedDataSourceTemplate<Chain> for UnresolvedDataSourceTem
     ) -> Result<DataSourceTemplate, Error> {
         todo!()
     }
+}
+
+fn deserialize_address<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let s: String = de::Deserialize::deserialize(deserializer)?;
+    let address = s.trim_start_matches("0x");
+    hex::decode(address)
+        .map_err(D::Error::custom)
+        .map(Some)
 }
