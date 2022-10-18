@@ -362,20 +362,20 @@ impl TriggersAdapterTrait<Chain> for TriggersAdapter {
         // TODO: Only add triggers if filter matches block
         let shared_block = Arc::new(block.clone());
 
-        let mut event_triggers = shared_block.transactions
+        let mut event_triggers = shared_block
+            .transactions
             .iter()
             .map(|transaction| {
-                let events: Vec<StarknetTrigger> = transaction.events
+                let events: Vec<StarknetTrigger> = transaction
+                    .events
                     .iter()
-                    .map(|event| {
-                        StarknetTrigger::Event(Arc::new(event.clone()))
-                    })
+                    .map(|event| StarknetTrigger::Event(Arc::new(event.clone())))
                     .collect();
                 return events;
             })
             .flatten()
             .collect();
-        
+
         let mut triggers = Vec::new();
         triggers.push(StarknetTrigger::Block(shared_block.clone()));
         triggers.append(&mut event_triggers);

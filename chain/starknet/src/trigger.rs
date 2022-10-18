@@ -18,7 +18,7 @@ impl PartialEq for StarknetTrigger {
         match (self, other) {
             (Self::Block(l0), Self::Block(r0)) => l0 == r0,
             (Self::Event(a), Self::Event(b)) => a == b,
-            _ => false
+            _ => false,
         }
     }
 }

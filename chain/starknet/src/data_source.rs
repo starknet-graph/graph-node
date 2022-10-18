@@ -9,9 +9,8 @@ use graph::{
 use std::sync::Arc;
 
 use crate::{chain::Chain, codec, trigger::StarknetTrigger};
-use starknet::core::{utils::get_selector_from_name};
 use serde::de;
-
+use starknet::core::utils::get_selector_from_name;
 
 #[derive(Clone)]
 pub struct DataSource {
@@ -67,7 +66,7 @@ pub struct MappingEventHandler {
     pub event: String,
 }
 
-impl MappingEventHandler   {
+impl MappingEventHandler {
     fn key(&self) -> Vec<u8> {
         let key = get_selector_from_name(self.event.as_str())
             .expect("MappingEventHandler.event is invalid");
@@ -100,7 +99,7 @@ impl blockchain::DataSource<Chain> for DataSource {
         if self.start_block() > block.number() {
             return Ok(None);
         }
-        
+
         let handler = match trigger {
             StarknetTrigger::Block(_) => match self.mapping.block_handlers.first() {
                 Some(handler) => handler.handler.clone(),
@@ -109,7 +108,7 @@ impl blockchain::DataSource<Chain> for DataSource {
             StarknetTrigger::Event(event) => match self.handler_for_event(event) {
                 Some(handler) => handler.handler,
                 None => return Ok(None),
-            }
+            },
         };
 
         println!("Handler found: {}", handler);
@@ -173,23 +172,21 @@ impl blockchain::DataSource<Chain> for DataSource {
 
 impl DataSource {
     /// Returns event trigger if an event.key matches the handler.key and optionally
-    /// if event.fromAddr matches the source address. Note this only supports the default 
+    /// if event.fromAddr matches the source address. Note this only supports the default
     /// starknet behavior of one key per event.
-    fn handler_for_event(
-        &self,
-        event: &codec::Event,
-    ) -> Option<MappingEventHandler> {
-        return self.mapping
+    fn handler_for_event(&self, event: &codec::Event) -> Option<MappingEventHandler> {
+        return self
+            .mapping
             .event_handlers
             .iter()
             .find(|handler| match event.keys.first() {
                 Some(key) => match &self.source.address {
                     Some(address) => address == &event.from_addr && key == &handler.key(),
                     None => key == &handler.key(),
-                }
+                },
                 None => false,
             })
-            .cloned()
+            .cloned();
     }
 }
 
@@ -266,7 +263,5 @@ where
 
     let s: String = de::Deserialize::deserialize(deserializer)?;
     let address = s.trim_start_matches("0x");
-    hex::decode(address)
-        .map_err(D::Error::custom)
-        .map(Some)
+    hex::decode(address).map_err(D::Error::custom).map(Some)
 }
