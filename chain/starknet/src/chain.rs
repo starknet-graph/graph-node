@@ -374,7 +374,24 @@ impl TriggersAdapterTrait<Chain> for TriggersAdapter {
         block: codec::Block,
         filter: &crate::adapter::TriggerFilter,
     ) -> Result<BlockWithTriggers<Chain>, Error> {
-        let triggers = vec![StarknetTrigger::Block(Arc::new(block.clone()))];
+        // TODO: Only add triggers if filter matches block
+        let shared_block = Arc::new(block.clone());
+
+        let mut event_triggers = shared_block
+            .transactions
+            .iter()
+            .flat_map(|transaction| -> Vec<StarknetTrigger> {
+                transaction
+                    .events
+                    .iter()
+                    .map(|event| StarknetTrigger::Event(Arc::new(event.clone())))
+                    .collect()
+            })
+            .collect();
+
+        let mut triggers = Vec::new();
+        triggers.push(StarknetTrigger::Block(shared_block));
+        triggers.append(&mut event_triggers);
 
         Ok(BlockWithTriggers::new(block, triggers, logger))
     }

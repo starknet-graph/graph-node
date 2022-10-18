@@ -13,3 +13,5 @@ graph-runtime-derive = { path = "../../runtime/derive" }
 prost = { workspace = true }
 prost-types = { workspace = true }
 serde = "1.0"
+starknet = "0.2.0"
+hex = { version = "0.4.3", features = ["serde"] }
