@@ -1,0 +1,71 @@
+name: Build Docker Image
+
+on:
+  create:
+
+jobs:
+  build:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/tags/nightly' }}
+
+    name: "Build"
+    runs-on: "ubuntu-latest"
+
+    env:
+      DOCKER_REPOSITORY: "starknet/graph-node"
+
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v2"
+
+      - name: "Login to Docker Hub"
+        uses: "docker/login-action@v1.6.0"
+        with:
+          username: "${{ secrets.DOCKER_HUB_USERNAME }}"
+          password: "${{ secrets.DOCKER_HUB_PASSWORD }}"
+
+      - name: "Determine image version"
+        run: |
+          version_line="${{ github.ref }}"
+
+          regex="^refs\/tags\/(.*)$"
+          [[ $version_line =~ $regex ]];
+          FULL_TAG=${BASH_REMATCH[1]}
+
+          if [ "$FULL_TAG" == "nightly" ]; then
+              VERSION="nightly"
+          else
+              regex="^refs\/tags\/v(.*)$"
+              [[ $version_line =~ $regex ]];
+              VERSION=${BASH_REMATCH[1]}
+          fi
+
+          echo "FULL_TAG=$FULL_TAG" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: "Determine image meta"
+        run: |
+          echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "TAG_NAME=$FULL_TAG" >> $GITHUB_ENV
+          echo "REPO_NAME=github_starknet-graph_graph-node" >> $GITHUB_ENV
+          echo "BRANCH_NAME=" >> $GITHUB_ENV
+
+      - name: "Build Docker image"
+        run: |
+          docker build --target graph-node-build \
+              --build-arg COMMIT_SHA=$COMMIT_SHA \
+              --build-arg REPO_NAME=$REPO_NAME \
+              --build-arg BRANCH_NAME=$BRANCH_NAME \
+              --build-arg TAG_NAME=$TAG_NAME \
+              -t graph-node-build \
+              -f docker/Dockerfile .
+          docker build --target graph-node \
+              --build-arg COMMIT_SHA=$COMMIT_SHA \
+              --build-arg REPO_NAME=$REPO_NAME \
+              --build-arg BRANCH_NAME=$BRANCH_NAME \
+              --build-arg TAG_NAME=$TAG_NAME \
+              -t ${DOCKER_REPOSITORY}:${VERSION} \
+              -f docker/Dockerfile .
+
+      - name: "Push Docker image"
+        run: |
+          docker push ${DOCKER_REPOSITORY}:${VERSION}
