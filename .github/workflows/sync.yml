@@ -16,6 +16,8 @@ jobs:
       - name: "Checkout source code"
         uses: "actions/checkout@v3"
         with:
+          # Subsequent actions are not triggered unless using PAT
+          token: "${{ secrets.GH_PAT }}"
           fetch-depth: 0
           submodules: true
 
