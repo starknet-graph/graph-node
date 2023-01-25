@@ -32,6 +32,15 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: "Install protoc"
+        run: |
+          # The version from apt-get is too old and won't work
+          curl -L -o /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip"
+          mkdir ${HOME}/protoc
+          cd ${HOME}/protoc
+          unzip /tmp/protoc.zip && rm /tmp/protoc.zip
+          echo "${HOME}/protoc/bin" >> $GITHUB_PATH
+
       - name: "Config Git"
         run: |
           git config user.name "Jonathan LEI"
