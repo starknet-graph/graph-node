@@ -1,0 +1,86 @@
+on:
+  schedule:
+    # 1:05 past midnight UTC
+    - cron: "5 1 * * *"
+
+name: "Sync with upstream"
+jobs:
+  sync:
+    name: "Sync"
+    runs-on: "ubuntu-latest"
+
+    env:
+      DEFAULT_BRANCH: "master"
+
+    steps:
+      - name: "Checkout source code"
+        uses: "actions/checkout@v3"
+        with:
+          # Subsequent actions are not triggered unless using PAT
+          token: "${{ secrets.GH_PAT }}"
+          fetch-depth: 0
+          submodules: true
+
+      - name: "Setup toolchain"
+        uses: "actions-rs/toolchain@v1"
+        with:
+          toolchain: "stable"
+          profile: "minimal"
+          override: true
+
+      - uses: "Swatinem/rust-cache@v1"
+        with:
+          cache-on-failure: true
+
+      - name: "Install protoc"
+        run: |
+          # The version from apt-get is too old and won't work
+          curl -L -o /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip"
+          mkdir ${HOME}/protoc
+          cd ${HOME}/protoc
+          unzip /tmp/protoc.zip && rm /tmp/protoc.zip
+          echo "${HOME}/protoc/bin" >> $GITHUB_PATH
+
+      - name: "Config Git"
+        run: |
+          git config user.name "Jonathan LEI"
+          git config user.email "me@xjonathan.dev"
+
+      - name: "Update branch"
+        run: |
+          git fetch origin
+          git remote add upstream https://github.com/graphprotocol/graph-node
+          git fetch upstream --no-tags
+
+          MERGE_BASE=$(git merge-base origin/$DEFAULT_BRANCH upstream/$DEFAULT_BRANCH)
+
+          # Don't force push unnecessarily unless changes are detected
+          if [[ $(git rev-list $MERGE_BASE..upstream/$DEFAULT_BRANCH | wc -l) -ne 0 ]]; then 
+            # Brings files from `home` to default branch
+            git checkout $DEFAULT_BRANCH
+            git reset --hard upstream/$DEFAULT_BRANCH
+            git checkout origin/home .
+            git add .
+            git commit -m "chore: README and CI changes"
+
+            # Here, we pick commits on the default branch except the first one. We do this instead
+            # of a naive rebase because the `home` branch might have changed, causing merge
+            # conflicts.
+            COMMIT_COUNT=$(git rev-list $MERGE_BASE..origin/$DEFAULT_BRANCH | wc -l)
+            git cherry-pick origin/$DEFAULT_BRANCH~$(($COMMIT_COUNT-1))..origin/$DEFAULT_BRANCH
+
+            # Makes sure the updated local branch builds
+            sudo apt-get install -y libpq-dev
+            cargo fmt --all --check
+            cargo build --all --all-targets
+
+            # Pushes updated branch
+            git push --force-with-lease
+
+            # Tags nightly
+            git tag -f nightly
+            git push --delete origin nightly
+            git push origin nightly
+          else
+            echo "No changes detected on upstream $DEFAULT_BRANCH"
+          fi
