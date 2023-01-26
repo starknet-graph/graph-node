@@ -14,7 +14,7 @@ env:
 jobs:
   unit-tests:
     name: Run unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     services:
       ipfs:
@@ -52,7 +52,7 @@ jobs:
 
   runner-tests:
     name: Subgraph Runner integration tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     services:
       ipfs:
@@ -93,7 +93,7 @@ jobs:
 
   integration-tests:
     name: Run integration tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     env:
       RUSTFLAGS: "-C link-arg=-fuse-ld=lld -D warnings"
@@ -143,7 +143,7 @@ jobs:
 
   rustfmt:
     name: Check rustfmt style
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     env:
       RUSTFLAGS: "-D warnings"
@@ -158,7 +158,7 @@ jobs:
 
   clippy:
     name: Report Clippy warnings
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
@@ -177,7 +177,7 @@ jobs:
 
   release-check:
     name: Build in release mode
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     env:
       RUSTFLAGS: "-D warnings"
