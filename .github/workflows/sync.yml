@@ -3,14 +3,46 @@ on:
     # 1:05 past midnight UTC
     - cron: "5 1 * * *"
 
+env:
+  DEFAULT_BRANCH: "master"
+
 name: "Sync with upstream"
 jobs:
+  sync-check:
+    name: "Sync Necessity Check"
+    runs-on: "ubuntu-latest"
+    outputs:
+      should_sync: ${{ steps.out.outputs.should_sync }}
+
+    steps:
+      - name: "Checkout source code"
+        uses: "actions/checkout@v3"
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - id: "out"
+        name: "Check if sync is needed"
+        run: |
+          git fetch origin
+          git remote add upstream https://github.com/graphprotocol/graph-node
+          git fetch upstream --no-tags
+
+          MERGE_BASE=$(git merge-base origin/$DEFAULT_BRANCH upstream/$DEFAULT_BRANCH)
+
+          # Don't force push unnecessarily unless changes are detected
+          if [[ $(git rev-list $MERGE_BASE..upstream/$DEFAULT_BRANCH | wc -l) -ne 0 ]]; then 
+            echo "should_sync=true" >> $GITHUB_OUTPUT
+          else
+            echo "No changes detected on upstream $DEFAULT_BRANCH"
+            echo "should_sync=false" >> $GITHUB_OUTPUT
+          fi
+
   sync:
     name: "Sync"
     runs-on: "ubuntu-latest"
-
-    env:
-      DEFAULT_BRANCH: "master"
+    needs: "sync-check"
+    if: "needs.sync-check.outputs.should_sync == 'true'"
 
     steps:
       - name: "Checkout source code"
@@ -31,6 +63,10 @@ jobs:
       - uses: "Swatinem/rust-cache@v1"
         with:
           cache-on-failure: true
+
+      - name: "Install libpq-dev"
+        run: |
+          sudo apt-get install -y libpq-dev
 
       - name: "Install protoc"
         run: |
@@ -54,33 +90,34 @@ jobs:
 
           MERGE_BASE=$(git merge-base origin/$DEFAULT_BRANCH upstream/$DEFAULT_BRANCH)
 
-          # Don't force push unnecessarily unless changes are detected
-          if [[ $(git rev-list $MERGE_BASE..upstream/$DEFAULT_BRANCH | wc -l) -ne 0 ]]; then 
-            # Brings files from `home` to default branch
-            git checkout $DEFAULT_BRANCH
-            git reset --hard upstream/$DEFAULT_BRANCH
-            git checkout origin/home .
-            git add .
-            git commit -m "chore: README and CI changes"
+          # Brings files from `home` to default branch
+          git checkout $DEFAULT_BRANCH
+          git reset --hard upstream/$DEFAULT_BRANCH
+          git checkout origin/home .
 
-            # Here, we pick commits on the default branch except the first one. We do this instead
-            # of a naive rebase because the `home` branch might have changed, causing merge
-            # conflicts.
-            COMMIT_COUNT=$(git rev-list $MERGE_BASE..origin/$DEFAULT_BRANCH | wc -l)
-            git cherry-pick origin/$DEFAULT_BRANCH~$(($COMMIT_COUNT-1))..origin/$DEFAULT_BRANCH
+          git add .
+          git commit -m "chore: README and CI changes"
 
-            # Makes sure the updated local branch builds
-            sudo apt-get install -y libpq-dev
-            cargo fmt --all --check
-            cargo build --all --all-targets
+          # Here, we pick commits on the default branch except the first one. We do this instead
+          # of a naive rebase because the `home` branch might have changed, causing merge
+          # conflicts.
+          COMMIT_COUNT=$(git rev-list $MERGE_BASE..origin/$DEFAULT_BRANCH | wc -l)
+          git cherry-pick origin/$DEFAULT_BRANCH~$(($COMMIT_COUNT-1))..origin/$DEFAULT_BRANCH
 
-            # Pushes updated branch
-            git push --force-with-lease
+      - name: "Check code format"
+        run: |
+          cargo fmt --all --check
 
-            # Tags nightly
-            git tag -f nightly
-            git push --delete origin nightly
-            git push origin nightly
-          else
-            echo "No changes detected on upstream $DEFAULT_BRANCH"
-          fi
+      - name: "Build"
+        run: |
+          cargo build --all --all-targets
+
+      - name: "Push updated branch"
+        run: |
+          git push --force-with-lease
+
+      - name: "Move nightly tag"
+        run: |
+          git tag -f nightly
+          git push --delete origin nightly
+          git push origin nightly
