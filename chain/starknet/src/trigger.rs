@@ -3,19 +3,41 @@ use graph::{
     runtime::{asc_new, gas::GasCounter, AscPtr, DeterministicHostError},
 };
 use graph_runtime_wasm::module::ToAscPtr;
+use starknet_core::types::FieldElement;
 use std::{cmp::Ordering, sync::Arc};
 
 use crate::codec;
 
 #[derive(Debug, Clone)]
 pub enum StarknetTrigger {
-    Block(Arc<codec::Block>),
+    Block(StarknetBlockTrigger),
+    Event(StarknetEventTrigger),
+}
+
+#[derive(Debug, Clone)]
+pub struct StarknetBlockTrigger {
+    pub(crate) block: Arc<codec::Block>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StarknetEventTrigger {
+    pub(crate) event: Arc<codec::Event>,
+    pub(crate) block: Arc<codec::Block>,
+    pub(crate) transaction: Arc<codec::Transaction>,
 }
 
 impl PartialEq for StarknetTrigger {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Block(l0), Self::Block(r0)) => l0 == r0,
+            (Self::Block(l), Self::Block(r)) => l.block == r.block,
+            (Self::Event(l), Self::Event(r)) => {
+                // Without event index we can't really tell if they're the same
+                // TODO: implement add event index to trigger data
+                l.block.hash == r.block.hash
+                    && l.transaction.hash == r.transaction.hash
+                    && l.event == r.event
+            }
+            _ => false,
         }
     }
 }
@@ -31,7 +53,15 @@ impl PartialOrd for StarknetTrigger {
 impl Ord for StarknetTrigger {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            (Self::Block(l0), Self::Block(r0)) => l0.height.cmp(&r0.height),
+            (Self::Block(l), Self::Block(r)) => l.block.height.cmp(&r.block.height),
+
+            // Block triggers always come last
+            (Self::Block(..), _) => Ordering::Greater,
+            (_, Self::Block(..)) => Ordering::Less,
+
+            // Keep the order when comparing two event triggers
+            // TODO: compare block hash, tx index, and event index
+            (Self::Event(..), Self::Event(..)) => Ordering::Equal,
         }
     }
 }
@@ -39,7 +69,16 @@ impl Ord for StarknetTrigger {
 impl TriggerData for StarknetTrigger {
     fn error_context(&self) -> String {
         match self {
-            Self::Block(block) => format!("block #{}", block.height),
+            Self::Block(block) => format!("block #{}", block.block.height),
+            Self::Event(event) => {
+                format!(
+                    "event from {}",
+                    match FieldElement::from_byte_slice_be(&event.event.from_addr) {
+                        Ok(from_addr) => format!("{from_addr:#x}"),
+                        Err(_) => "[unable to parse source address]".into(),
+                    }
+                )
+            }
         }
     }
 }
@@ -52,7 +91,8 @@ impl ToAscPtr for StarknetTrigger {
         gas: &GasCounter,
     ) -> Result<AscPtr<()>, DeterministicHostError> {
         Ok(match self {
-            StarknetTrigger::Block(block) => asc_new(heap, block.as_ref(), gas)?.erase(),
+            StarknetTrigger::Block(block) => asc_new(heap, &block, gas)?.erase(),
+            StarknetTrigger::Event(event) => asc_new(heap, &event, gas)?.erase(),
         })
     }
 }

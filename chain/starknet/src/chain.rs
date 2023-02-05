@@ -30,7 +30,7 @@ use crate::{
         DataSource, DataSourceTemplate, UnresolvedDataSource, UnresolvedDataSourceTemplate,
     },
     runtime::RuntimeAdapter,
-    trigger::StarknetTrigger,
+    trigger::{StarknetBlockTrigger, StarknetEventTrigger, StarknetTrigger},
 };
 
 pub struct Chain {
@@ -374,7 +374,30 @@ impl TriggersAdapterTrait<Chain> for TriggersAdapter {
         block: codec::Block,
         filter: &crate::adapter::TriggerFilter,
     ) -> Result<BlockWithTriggers<Chain>, Error> {
-        let triggers = vec![StarknetTrigger::Block(Arc::new(block.clone()))];
+        // TODO: Only add triggers if filter matches block
+        let shared_block = Arc::new(block.clone());
+
+        let mut triggers: Vec<_> = shared_block
+            .transactions
+            .iter()
+            .flat_map(|transaction| -> Vec<StarknetTrigger> {
+                transaction
+                    .events
+                    .iter()
+                    .map(|event| {
+                        StarknetTrigger::Event(StarknetEventTrigger {
+                            event: Arc::new(event.clone()),
+                            block: shared_block.clone(),
+                            transaction: Arc::new(transaction.clone()),
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+
+        triggers.push(StarknetTrigger::Block(StarknetBlockTrigger {
+            block: shared_block,
+        }));
 
         Ok(BlockWithTriggers::new(block, triggers, logger))
     }

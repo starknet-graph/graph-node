@@ -4,7 +4,10 @@ use graph::{
 };
 use graph_runtime_wasm::asc_abi::class::{Array, AscEnum, EnumPayload};
 
-use crate::codec;
+use crate::{
+    codec,
+    trigger::{StarknetBlockTrigger, StarknetEventTrigger},
+};
 
 pub(crate) use super::generated::*;
 
@@ -73,5 +76,31 @@ impl ToAscObj<AscBytesArray> for Vec<Vec<u8>> {
             .collect();
 
         Ok(AscBytesArray(Array::new(&content?, heap, gas)?))
+    }
+}
+
+impl ToAscObj<AscBlock> for StarknetBlockTrigger {
+    fn to_asc_obj<H: AscHeap + ?Sized>(
+        &self,
+        heap: &mut H,
+        gas: &GasCounter,
+    ) -> Result<AscBlock, DeterministicHostError> {
+        self.block.to_asc_obj(heap, gas)
+    }
+}
+
+impl ToAscObj<AscEvent> for StarknetEventTrigger {
+    fn to_asc_obj<H: AscHeap + ?Sized>(
+        &self,
+        heap: &mut H,
+        gas: &GasCounter,
+    ) -> Result<AscEvent, DeterministicHostError> {
+        Ok(AscEvent {
+            from_addr: asc_new(heap, self.event.from_addr.as_slice(), gas)?,
+            keys: asc_new(heap, &self.event.keys, gas)?,
+            data: asc_new(heap, &self.event.data, gas)?,
+            block: asc_new(heap, self.block.as_ref(), gas)?,
+            transaction: asc_new(heap, self.transaction.as_ref(), gas)?,
+        })
     }
 }
