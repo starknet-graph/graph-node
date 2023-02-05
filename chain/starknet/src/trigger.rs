@@ -3,6 +3,7 @@ use graph::{
     runtime::{asc_new, gas::GasCounter, AscPtr, DeterministicHostError},
 };
 use graph_runtime_wasm::module::ToAscPtr;
+use starknet_core::types::FieldElement;
 use std::{cmp::Ordering, sync::Arc};
 
 use crate::codec;
@@ -50,7 +51,15 @@ impl TriggerData for StarknetTrigger {
     fn error_context(&self) -> String {
         match self {
             Self::Block(block) => format!("block #{}", block.height),
-            Self::Event(event) => format!("event from {:?}", event.from_addr),
+            Self::Event(event) => {
+                format!(
+                    "event from {}",
+                    match FieldElement::from_byte_slice_be(&event.from_addr) {
+                        Ok(from_addr) => format!("{from_addr:#x}"),
+                        Err(_) => "[unable to parse source address]".into(),
+                    }
+                )
+            }
         }
     }
 }
