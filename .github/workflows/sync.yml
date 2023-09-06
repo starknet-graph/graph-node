@@ -1,4 +1,5 @@
 on:
+  workflow_dispatch:
   schedule:
     # 1:05 past midnight UTC
     - cron: "5 1 * * *"
