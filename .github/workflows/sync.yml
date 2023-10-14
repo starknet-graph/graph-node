@@ -110,7 +110,9 @@ jobs:
           # of a naive rebase because the `home` branch might have changed, causing merge
           # conflicts.
           COMMIT_COUNT=$(git rev-list $MERGE_BASE..origin/$DEFAULT_BRANCH | wc -l)
-          git cherry-pick origin/$DEFAULT_BRANCH~$(($COMMIT_COUNT-1))..origin/$DEFAULT_BRANCH
+          if [ "$COMMIT_COUNT" -ne "1" ]; then
+            git cherry-pick origin/$DEFAULT_BRANCH~$(($COMMIT_COUNT-1))..origin/$DEFAULT_BRANCH
+          fi
 
       - name: "Check code format"
         run: |
