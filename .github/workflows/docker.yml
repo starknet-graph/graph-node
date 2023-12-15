@@ -1,35 +1,59 @@
-name: Build Docker Image
+name: "Build multi-arch Docker images"
 
 on:
-  create:
+  push:
+    tags:
+      - "nightly"
+      - "v*.*.*"
 
 jobs:
-  build:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/tags/nightly' }}
+  start-runner:
+    name: "Start self-hosted EC2 runner"
+    runs-on: "ubuntu-latest"
+    outputs:
+      label: ${{ steps.start-ec2-runner.outputs.label }}
+      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
 
-    name: "Build"
-    runs-on: "ubuntu-larger"
+    steps:
+      - name: "Configure AWS credentials"
+        uses: "aws-actions/configure-aws-credentials@v1"
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: "Start EC2 runner"
+        id: "start-ec2-runner"
+        uses: "xJonathanLEI/ec2-github-runner@main"
+        with:
+          mode: "start"
+          github-token: ${{ secrets.GH_PAT }}
+          ec2-image-id: "ami-01a786eb497a27d2a"
+          ec2-instance-type: "c6g.8xlarge"
+          subnet-id: "subnet-0f178a06b3c5e09dd"
+          security-group-id: "sg-0db4b2850585ebe80"
+          storage-size: 256
+
+  image-info:
+    name: "Extract image info"
+    runs-on: "ubuntu-latest"
+    outputs:
+      tag: ${{ steps.derive.outputs.tag }}
+      git_tag: ${{ steps.derive.outputs.git_tag }}
 
     env:
       DOCKER_REPOSITORY: "starknet/graph-node"
 
     steps:
-      - name: "Checkout"
-        uses: "actions/checkout@v2"
-
-      - name: "Login to Docker Hub"
-        uses: "docker/login-action@v1.6.0"
-        with:
-          username: "${{ secrets.DOCKER_HUB_USERNAME }}"
-          password: "${{ secrets.DOCKER_HUB_PASSWORD }}"
-
-      - name: "Determine image version"
+      - id: "derive"
+        name: "Determine image version"
         run: |
           version_line="${{ github.ref }}"
 
           regex="^refs\/tags\/(.*)$"
           [[ $version_line =~ $regex ]];
           FULL_TAG=${BASH_REMATCH[1]}
+          echo "git_tag=$FULL_TAG" >> $GITHUB_OUTPUT
 
           if [ "$FULL_TAG" == "nightly" ]; then
               VERSION="nightly"
@@ -39,13 +63,22 @@ jobs:
               VERSION=${BASH_REMATCH[1]}
           fi
 
-          echo "FULL_TAG=$FULL_TAG" >> $GITHUB_ENV
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "tag=$DOCKER_REPOSITORY:$VERSION" >> $GITHUB_OUTPUT
 
-      - name: "Determine image meta"
+  build-amd64:
+    name: "Build for linux/amd64"
+    runs-on: "ubuntu-larger"
+    needs:
+      - "image-info"
+
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v3"
+
+      - name: "Set image meta"
         run: |
           echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
-          echo "TAG_NAME=$FULL_TAG" >> $GITHUB_ENV
+          echo "TAG_NAME=${{ needs.image-info.outputs.git_tag }}" >> $GITHUB_ENV
           echo "REPO_NAME=github_starknet-graph_graph-node" >> $GITHUB_ENV
           echo "BRANCH_NAME=" >> $GITHUB_ENV
 
@@ -63,9 +96,144 @@ jobs:
               --build-arg REPO_NAME=$REPO_NAME \
               --build-arg BRANCH_NAME=$BRANCH_NAME \
               --build-arg TAG_NAME=$TAG_NAME \
-              -t ${DOCKER_REPOSITORY}:${VERSION} \
+              -t ${{ needs.image-info.outputs.tag }}-amd64 \
               -f docker/Dockerfile .
 
-      - name: "Push Docker image"
+      - name: "Export Docker image"
         run: |
-          docker push ${DOCKER_REPOSITORY}:${VERSION}
+          docker save ${{ needs.image-info.outputs.tag }}-amd64 | gzip > /tmp/amd64.tar.gz
+
+      - name: "Upload Docker image artifact"
+        uses: "actions/upload-artifact@v3"
+        with:
+          name: "amd64.tar.gz"
+          path: "/tmp/amd64.tar.gz"
+
+  build-arm64:
+    name: "Build for linux/arm64"
+    runs-on: "${{ needs.start-runner.outputs.label }}"
+    needs:
+      - "image-info"
+      - "start-runner"
+
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v3"
+
+      - name: "Install Docker"
+        run: |
+          # Add Docker's official GPG key:
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl gnupg
+          sudo install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+          # Add the repository to Apt sources:
+          echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+            sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update
+
+          # Install the latest version
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+      - name: "Set image meta"
+        run: |
+          echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "TAG_NAME=${{ needs.image-info.outputs.git_tag }}" >> $GITHUB_ENV
+          echo "REPO_NAME=github_starknet-graph_graph-node" >> $GITHUB_ENV
+          echo "BRANCH_NAME=" >> $GITHUB_ENV
+
+      - name: "Build Docker image"
+        run: |
+          docker build --target graph-node-build \
+              --build-arg COMMIT_SHA=$COMMIT_SHA \
+              --build-arg REPO_NAME=$REPO_NAME \
+              --build-arg BRANCH_NAME=$BRANCH_NAME \
+              --build-arg TAG_NAME=$TAG_NAME \
+              -t graph-node-build \
+              -f docker/Dockerfile .
+          docker build --target graph-node \
+              --build-arg COMMIT_SHA=$COMMIT_SHA \
+              --build-arg REPO_NAME=$REPO_NAME \
+              --build-arg BRANCH_NAME=$BRANCH_NAME \
+              --build-arg TAG_NAME=$TAG_NAME \
+              -t ${{ needs.image-info.outputs.tag }}-arm64 \
+              -f docker/Dockerfile .
+
+      - name: "Export Docker image"
+        run: |
+          docker save ${{ needs.image-info.outputs.tag }}-arm64 | gzip > /tmp/arm64.tar.gz
+
+      - name: "Upload Docker image artifact"
+        uses: "actions/upload-artifact@v3"
+        with:
+          name: "arm64.tar.gz"
+          path: "/tmp/arm64.tar.gz"
+
+  push:
+    name: "Push Docker images"
+    runs-on: "ubuntu-latest"
+    needs:
+      - "image-info"
+      - "build-amd64"
+      - "build-arm64"
+
+    steps:
+      - name: "Download linux/amd64 image"
+        uses: "actions/download-artifact@v3"
+        with:
+          name: "amd64.tar.gz"
+          path: "/tmp/"
+
+      - name: "Download linux/arm64/v8 image"
+        uses: "actions/download-artifact@v3"
+        with:
+          name: "arm64.tar.gz"
+          path: "/tmp/"
+
+      - name: "Load Docker images"
+        run: |
+          docker load < /tmp/amd64.tar.gz
+          docker load < /tmp/arm64.tar.gz
+
+      - name: "Login to Docker Hub"
+        uses: "docker/login-action@v1.6.0"
+        with:
+          username: "${{ secrets.DOCKER_HUB_USERNAME }}"
+          password: "${{ secrets.DOCKER_HUB_PASSWORD }}"
+
+      - name: "Push Docker images"
+        run: |
+          docker push ${{ needs.image-info.outputs.tag }}-amd64
+          docker push ${{ needs.image-info.outputs.tag }}-arm64
+          docker manifest create ${{ needs.image-info.outputs.tag }} \
+            ${{ needs.image-info.outputs.tag }}-amd64 \
+            ${{ needs.image-info.outputs.tag }}-arm64
+          docker manifest push ${{ needs.image-info.outputs.tag }}
+
+  stop-runner:
+    name: "Stop self-hosted EC2 runner"
+    runs-on: "ubuntu-latest"
+    needs:
+      - "start-runner"
+      - "build-arm64"
+    if: ${{ always() }}
+
+    steps:
+      - name: "Configure AWS credentials"
+        uses: "aws-actions/configure-aws-credentials@v1"
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: "Stop EC2 runner"
+        uses: "xJonathanLEI/ec2-github-runner@main"
+        with:
+          mode: "stop"
+          github-token: ${{ secrets.GH_PAT }}
+          label: "${{ needs.start-runner.outputs.label }}"
+          ec2-instance-id: "${{ needs.start-runner.outputs.ec2-instance-id }}"
